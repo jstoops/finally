@@ -2,50 +2,74 @@
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
 class PriceUpdate:
-    """Immutable snapshot of a single ticker's price at a point in time."""
+    """Immutable snapshot of one ticker's latest price.
+
+    Created by PriceCache.update(), which fills previous_price and open_price.
+    """
 
     ticker: str
-    price: float
-    previous_price: float
-    timestamp: float = field(default_factory=time.time)  # Unix seconds
-    open_price: float | None = None  # Session open; falls back to price when unset
+    price: float  # rounded to 2 dp
+    previous_price: float  # price at the previous update (== price on the first one)
+    open_price: float  # session open: first price seen for this ticker this process
+    timestamp: float  # Unix seconds (float), when the cache received the price
 
     @property
     def change(self) -> float:
-        """Absolute price change from previous update."""
+        """Tick-to-tick absolute change. Used for flash direction only."""
         return round(self.price - self.previous_price, 4)
 
     @property
     def change_percent(self) -> float:
-        """Percentage change from previous update."""
+        """Tick-to-tick % change. NOT the UI's Chg % (see session_change_percent)."""
         if self.previous_price == 0:
             return 0.0
         return round((self.price - self.previous_price) / self.previous_price * 100, 4)
 
     @property
+    def session_change_percent(self) -> float:
+        """% change since session open: the UI's "Chg %" (PLAN §6).
+
+        Not in the SSE payload (the frontend computes it from price and open_price);
+        provided for server-side consumers such as the LLM portfolio context.
+        """
+        if self.open_price == 0:
+            return 0.0
+        return round((self.price - self.open_price) / self.open_price * 100, 4)
+
+    @property
     def direction(self) -> str:
-        """'up', 'down', or 'flat'."""
+        """'up', 'down' or 'flat' relative to the previous update."""
         if self.price > self.previous_price:
             return "up"
-        elif self.price < self.previous_price:
+        if self.price < self.previous_price:
             return "down"
         return "flat"
 
     def to_dict(self) -> dict:
-        """Serialize for JSON / SSE transmission."""
+        """Exactly the SSE payload fields of PLAN §6, in that order."""
         return {
             "ticker": self.ticker,
             "price": self.price,
             "previous_price": self.previous_price,
-            "open_price": self.open_price if self.open_price is not None else self.price,
+            "open_price": self.open_price,
             "timestamp": self.timestamp,
             "change": self.change,
             "change_percent": self.change_percent,
             "direction": self.direction,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class PricePoint:
+    """One point in a ticker's 5-minute history buffer."""
+
+    timestamp: float  # Unix seconds, same clock as PriceUpdate.timestamp
+    price: float
+
+    def to_dict(self) -> dict:
+        return {"timestamp": self.timestamp, "price": self.price}

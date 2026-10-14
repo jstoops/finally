@@ -1,7 +1,7 @@
 """Tests for GBMSimulator."""
 
 from app.market.seed_prices import SEED_PRICES
-from app.market.simulator import GBMSimulator
+from app.market.simulator import GBMSimulator, _unknown_seed_price
 
 
 class TestGBMSimulator:
@@ -52,12 +52,31 @@ class TestGBMSimulator:
         sim = GBMSimulator(tickers=["AAPL"])
         sim.remove_ticker("NOPE")  # Should not raise
 
-    def test_unknown_ticker_gets_random_seed_price(self):
-        """Test that unknown tickers get random seed prices."""
+    def test_unknown_ticker_seed_price_in_range(self):
+        """Unknown tickers get a seed price between $50 and $300."""
         sim = GBMSimulator(tickers=["ZZZZ"])
         price = sim.get_price("ZZZZ")
         assert price is not None
-        assert 50.0 <= price <= 300.0
+        assert 50.0 <= price < 300.0
+
+    def test_unknown_seed_is_deterministic(self):
+        """The same unknown ticker always starts at the same price (survives restarts)."""
+        a = GBMSimulator(["PYPL"]).get_price("PYPL")
+        b = GBMSimulator(["PYPL"]).get_price("PYPL")
+        assert a == b == _unknown_seed_price("PYPL")
+
+    def test_unknown_seeds_differ_between_tickers(self):
+        assert _unknown_seed_price("PYPL") != _unknown_seed_price("SHOP")
+
+    def test_full_default_watchlist_cholesky(self):
+        sim = GBMSimulator(list(SEED_PRICES))
+        assert sim._cholesky.shape == (10, 10)
+        assert len(sim.step()) == 10
+
+    def test_cholesky_with_many_unknown_tickers(self):
+        """The correlation matrix stays positive definite with mixed known/unknown tickers."""
+        sim = GBMSimulator(list(SEED_PRICES) + [f"T{i}" for i in range(40)])
+        assert len(sim.step()) == 50
 
     def test_empty_step(self):
         """Test stepping with no tickers."""
@@ -126,6 +145,6 @@ class TestGBMSimulator:
         result = sim.step()
         price_str = str(result["AAPL"])
         # Check that we have at most 2 decimal places
-        if '.' in price_str:
-            decimal_part = price_str.split('.')[1]
+        if "." in price_str:
+            decimal_part = price_str.split(".")[1]
             assert len(decimal_part) <= 2

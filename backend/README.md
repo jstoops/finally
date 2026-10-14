@@ -6,13 +6,13 @@ FastAPI backend for the FinAlly AI Trading Workstation.
 
 - `app/` - Application code
   - `market/` - Market data subsystem
-    - `models.py` - PriceUpdate dataclass
-    - `cache.py` - Thread-safe price cache
+    - `models.py` - PriceUpdate and PricePoint dataclasses
+    - `cache.py` - Thread-safe price cache (latest price, session open, 5-minute history)
     - `interface.py` - MarketDataSource abstract interface
     - `simulator.py` - GBM-based market simulator
-    - `massive_client.py` - Massive/Polygon.io API client
+    - `massive_client.py` - Massive/Polygon.io REST poller (live snapshots, or end-of-day closes on free keys)
     - `factory.py` - Data source factory
-    - `stream.py` - SSE streaming endpoint
+    - `stream.py` - SSE streaming and price-history endpoints
     - `seed_prices.py` - Default ticker prices and parameters
 
 - `tests/` - Unit and integration tests
@@ -22,34 +22,35 @@ FastAPI backend for the FinAlly AI Trading Workstation.
 
 ```bash
 # Install dependencies
-uv sync --dev
+uv sync --extra dev
 
 # Run all tests
-uv run pytest
+uv run --extra dev pytest
 
 # Run with coverage
-uv run pytest --cov=app --cov-report=html
+uv run --extra dev pytest --cov=app --cov-report=html
 
 # Run specific test file
-uv run pytest tests/market/test_simulator.py
+uv run --extra dev pytest tests/market/test_simulator.py
 
 # Run with verbose output
-uv run pytest -v
+uv run --extra dev pytest -v
 ```
 
 ## Environment Variables
 
 - `MASSIVE_API_KEY` - Optional. If set, use real market data from Massive API. If not set, use the built-in simulator.
+- `MASSIVE_POLL_INTERVAL` - Optional. Seconds between Massive polls (default 15, minimum 1).
 
 ## Development
 
 ```bash
 # Install dependencies
-uv sync --dev
+uv sync --extra dev
 
 # Run linter
-uv run ruff check .
+uv run --extra dev ruff check .
 
 # Format code
-uv run ruff format .
+uv run --extra dev ruff format .
 ```

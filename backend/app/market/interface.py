@@ -49,7 +49,9 @@ class MarketDataSource(ABC):
     async def remove_ticker(self, ticker: str) -> None:
         """Remove a ticker from the active set. No-op if not present.
 
-        Also removes the ticker from the PriceCache.
+        Also removes the ticker from the PriceCache. The app must only call this
+        when no position is held in the ticker (PLAN §6: tracked tickers are
+        watchlist ∪ held positions), or portfolio valuation loses its price.
         """
 
     @abstractmethod
