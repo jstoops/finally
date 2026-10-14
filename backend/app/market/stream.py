@@ -14,16 +14,14 @@ from .cache import PriceCache
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/stream", tags=["streaming"])
-
-
 def create_stream_router(price_cache: PriceCache) -> APIRouter:
-    """Create the SSE streaming router with a reference to the price cache.
+    """Create the market data router (SSE stream + price history).
 
     This factory pattern lets us inject the PriceCache without globals.
     """
+    router = APIRouter(tags=["market"])
 
-    @router.get("/prices")
+    @router.get("/api/stream/prices")
     async def stream_prices(request: Request) -> StreamingResponse:
         """SSE endpoint for live price updates.
 
@@ -44,6 +42,15 @@ def create_stream_router(price_cache: PriceCache) -> APIRouter:
                 "X-Accel-Buffering": "no",  # Disable nginx buffering if proxied
             },
         )
+
+    @router.get("/api/prices/{ticker}/history")
+    async def price_history(ticker: str) -> dict:
+        """Last ~5 minutes of prices for one ticker (empty for untracked)."""
+        ticker = ticker.strip().upper()
+        points = [
+            {"timestamp": ts, "price": price} for ts, price in price_cache.get_history(ticker)
+        ]
+        return {"ticker": ticker, "points": points}
 
     return router
 

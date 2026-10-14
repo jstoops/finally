@@ -24,7 +24,8 @@ from app.market import PriceCache, PriceUpdate, MarketDataSource, create_market_
   - `get(ticker) -> PriceUpdate | None`
   - `get_price(ticker) -> float | None`
   - `get_all() -> dict[str, PriceUpdate]`
-  - `remove(ticker)`
+  - `get_history(ticker) -> list[(timestamp, price)]` — last 600 points (~5 min), oldest first
+  - `remove(ticker)` — also clears session open price and history
   - `version` property — monotonic counter, increments on every update (for SSE change detection)
 
 - **`MarketDataSource`** — Abstract interface implemented by `SimulatorDataSource` and `MassiveDataSource`. Lifecycle: `start(tickers)` -> `add_ticker()` / `remove_ticker()` -> `stop()`.
