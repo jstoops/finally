@@ -14,6 +14,7 @@ class PriceUpdate:
     price: float
     previous_price: float
     timestamp: float = field(default_factory=time.time)  # Unix seconds
+    open_price: float | None = None  # Session open; falls back to price when unset
 
     @property
     def change(self) -> float:
@@ -42,6 +43,7 @@ class PriceUpdate:
             "ticker": self.ticker,
             "price": self.price,
             "previous_price": self.previous_price,
+            "open_price": self.open_price if self.open_price is not None else self.price,
             "timestamp": self.timestamp,
             "change": self.change,
             "change_percent": self.change_percent,
