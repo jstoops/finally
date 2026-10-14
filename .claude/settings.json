@@ -1,7 +1,6 @@
 {
   "enabledPlugins": {
     "context7@claude-plugins-official": false,
-    "playwright@claude-plugins-official": false,
-    "independent-reviewer@jdscraft-tools": true
+    "playwright@claude-plugins-official": false
   }
 }
