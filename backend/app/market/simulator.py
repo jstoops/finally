@@ -148,7 +148,7 @@ class GBMSimulator:
         if ticker in self._prices:
             return
         self._tickers.append(ticker)
-        self._prices[ticker] = SEED_PRICES.get(ticker, random.uniform(50.0, 300.0))
+        self._prices[ticker] = SEED_PRICES.get(ticker) or _unknown_seed_price(ticker)
         self._params[ticker] = TICKER_PARAMS.get(ticker, dict(DEFAULT_PARAMS))
 
     def _rebuild_cholesky(self) -> None:
@@ -197,6 +197,21 @@ class GBMSimulator:
         return CROSS_GROUP_CORR
 
 
+def _unknown_seed_price(ticker: str) -> float:
+    """Deterministic seed in [50, 300) for tickers without a SEED_PRICES entry.
+
+    Seeding from the symbol (not the global RNG) means a held position in an
+    unlisted ticker restarts at the same price after a process restart.
+    random.Random(str) is seeded from a SHA-512 of the string, so it doesn't
+    depend on PYTHONHASHSEED.
+    """
+    return round(random.Random(ticker).uniform(50.0, 300.0), 2)
+
+
+def _normalize(ticker: str) -> str:
+    return ticker.strip().upper()
+
+
 class SimulatorDataSource(MarketDataSource):
     """MarketDataSource backed by the GBM simulator.
 
@@ -217,6 +232,7 @@ class SimulatorDataSource(MarketDataSource):
         self._task: asyncio.Task | None = None
 
     async def start(self, tickers: list[str]) -> None:
+        tickers = list(dict.fromkeys(_normalize(t) for t in tickers))
         self._sim = GBMSimulator(
             tickers=tickers,
             event_probability=self._event_prob,
@@ -240,15 +256,18 @@ class SimulatorDataSource(MarketDataSource):
         logger.info("Simulator stopped")
 
     async def add_ticker(self, ticker: str) -> None:
+        ticker = _normalize(ticker)
         if self._sim:
             self._sim.add_ticker(ticker)
             # Seed cache immediately so the ticker has a price right away
+            # (skipped if already cached, to avoid a duplicate history point)
             price = self._sim.get_price(ticker)
-            if price is not None:
+            if price is not None and ticker not in self._cache:
                 self._cache.update(ticker=ticker, price=price)
             logger.info("Simulator: added ticker %s", ticker)
 
     async def remove_ticker(self, ticker: str) -> None:
+        ticker = _normalize(ticker)
         if self._sim:
             self._sim.remove_ticker(ticker)
         self._cache.remove(ticker)

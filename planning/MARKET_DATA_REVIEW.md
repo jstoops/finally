@@ -4,6 +4,8 @@
 **Scope:** `backend/app/market/` (9 modules, 380 statements) and `backend/tests/market/` (7 modules, 93 tests), at `main` @ `484aa85`
 **Reviewed against:** `PLAN.md` §6/§8/§12, `MARKET_DATA_DESIGN.md` (§13 change checklist, §14 edge cases), `MARKET_INTERFACE.md`, `MASSIVE_API.md`, `MARKET_DATA_SUMMARY.md`
 
+> **Resolution (2026-10-13):** all findings below are fixed on branch `fix/market-data-review`. See the "Review Fixes" table in `MARKET_DATA_SUMMARY.md`.
+
 ## Verdict
 
 **The simulator path is ready to build on. The Massive path is not usable and needs the planned rewrite.**

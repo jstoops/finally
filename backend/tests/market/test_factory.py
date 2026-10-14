@@ -77,3 +77,36 @@ class TestFactory:
 
         assert isinstance(source, MassiveDataSource)
         assert source._cache is cache
+
+
+class TestPollInterval:
+    """MASSIVE_POLL_INTERVAL parsing (PLAN §5)."""
+
+    def _interval(self, env):
+        with patch.dict(os.environ, {"MASSIVE_API_KEY": "k", **env}, clear=True):
+            return create_market_data_source(PriceCache())._interval
+
+    def test_default_is_15(self):
+        assert self._interval({}) == 15.0
+
+    def test_env_var_respected(self):
+        assert self._interval({"MASSIVE_POLL_INTERVAL": "5"}) == 5.0
+
+    def test_float_value(self):
+        assert self._interval({"MASSIVE_POLL_INTERVAL": "2.5"}) == 2.5
+
+    def test_blank_uses_default(self):
+        assert self._interval({"MASSIVE_POLL_INTERVAL": ""}) == 15.0
+        assert self._interval({"MASSIVE_POLL_INTERVAL": "  "}) == 15.0
+
+    def test_invalid_uses_default(self):
+        assert self._interval({"MASSIVE_POLL_INTERVAL": "fast"}) == 15.0
+
+    def test_nan_and_infinity_use_default(self):
+        """NaN would crash asyncio.sleep(); infinity would never poll."""
+        for raw in ("nan", "inf", "-inf", "Infinity"):
+            assert self._interval({"MASSIVE_POLL_INTERVAL": raw}) == 15.0
+
+    def test_below_minimum_is_clamped_to_1(self):
+        for raw in ("0.2", "0", "-3"):
+            assert self._interval({"MASSIVE_POLL_INTERVAL": raw}) == 1.0

@@ -4,84 +4,110 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from collections.abc import Callable
 from threading import Lock
 
-from .models import PriceUpdate
-
-HISTORY_SIZE = 600  # 5 minutes at 500ms
+from .models import PricePoint, PriceUpdate
 
 
 class PriceCache:
-    """Thread-safe in-memory cache of the latest price for each ticker.
+    """Latest price, session open price and recent history for each tracked ticker.
 
-    Writers: SimulatorDataSource or MassiveDataSource (one at a time).
-    Readers: SSE streaming endpoint, portfolio valuation, trade execution.
+    Writers: the active MarketDataSource (simulator or Massive), via update()/remove().
+    Readers: SSE stream, history endpoint, portfolio valuation, trade execution, LLM context.
+
+    Keys are stored as given; callers pass normalized (uppercase, trimmed) tickers.
     """
 
-    def __init__(self) -> None:
+    HISTORY_SECONDS: float = 300.0  # PLAN §6: last 5 minutes
+    HISTORY_MAX_POINTS: int = 600  # 5 min at 500 ms; hard cap on memory per ticker
+
+    def __init__(
+        self,
+        history_seconds: float = HISTORY_SECONDS,
+        history_max_points: int = HISTORY_MAX_POINTS,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        self._history_seconds = history_seconds
+        self._history_max_points = history_max_points
+        self._clock = clock  # injectable for tests
         self._prices: dict[str, PriceUpdate] = {}
-        self._open_prices: dict[str, float] = {}  # First price seen per ticker
-        self._history: dict[str, deque[tuple[float, float]]] = {}
+        self._history: dict[str, deque[PricePoint]] = {}
         self._lock = Lock()
-        self._version: int = 0  # Monotonically increasing; bumped on every update
+        self._version = 0  # bumped on every update() and every effective remove()
+
+    # --- Writes ---
 
     def update(self, ticker: str, price: float, timestamp: float | None = None) -> PriceUpdate:
-        """Record a new price for a ticker. Returns the created PriceUpdate.
+        """Record a price for `ticker` and return the new PriceUpdate.
 
-        Automatically computes direction and change from the previous price.
-        If this is the first update for the ticker, previous_price == price (direction='flat').
+        Sets open_price on the first update for the ticker and carries it forward
+        afterwards. Timestamps default to receipt time and are forced to be strictly
+        increasing per ticker, because the frontend chart rejects repeated times.
         """
+        price = round(float(price), 2)
         with self._lock:
-            ts = timestamp or time.time()
+            ts = timestamp if timestamp is not None else self._clock()
             prev = self._prices.get(ticker)
-            previous_price = prev.price if prev else price
-
-            rounded = round(price, 2)
-            open_price = self._open_prices.setdefault(ticker, rounded)
+            if prev is not None and ts <= prev.timestamp:
+                ts = prev.timestamp + 0.001  # clock repeated or stepped back
 
             update = PriceUpdate(
                 ticker=ticker,
-                price=rounded,
-                previous_price=round(previous_price, 2),
+                price=price,
+                previous_price=prev.price if prev else price,
+                open_price=prev.open_price if prev else price,
                 timestamp=ts,
-                open_price=open_price,
             )
             self._prices[ticker] = update
-            self._history.setdefault(ticker, deque(maxlen=HISTORY_SIZE)).append((ts, rounded))
+
+            history = self._history.get(ticker)
+            if history is None:
+                history = self._history[ticker] = deque(maxlen=self._history_max_points)
+            history.append(PricePoint(timestamp=ts, price=price))
+
             self._version += 1
             return update
 
+    def remove(self, ticker: str) -> None:
+        """Forget `ticker` entirely: latest price, session open and history."""
+        with self._lock:
+            existed = self._prices.pop(ticker, None) is not None
+            self._history.pop(ticker, None)
+            if existed:
+                self._version += 1  # SSE pushes a frame without the ticker
+
+    # --- Reads ---
+
     def get(self, ticker: str) -> PriceUpdate | None:
-        """Get the latest price for a single ticker, or None if unknown."""
+        """Latest price for a ticker, or None if unknown."""
         with self._lock:
             return self._prices.get(ticker)
 
-    def get_all(self) -> dict[str, PriceUpdate]:
-        """Snapshot of all current prices. Returns a shallow copy."""
-        with self._lock:
-            return dict(self._prices)
-
     def get_price(self, ticker: str) -> float | None:
-        """Convenience: get just the price float, or None."""
+        """Convenience: just the price float, or None."""
         update = self.get(ticker)
         return update.price if update else None
 
-    def get_history(self, ticker: str) -> list[tuple[float, float]]:
-        """Last ~5 minutes of (timestamp, price) points, oldest first. Empty if untracked."""
+    def get_all(self) -> dict[str, PriceUpdate]:
+        """Shallow copy of all latest prices (values are immutable)."""
         with self._lock:
-            return list(self._history.get(ticker, ()))
+            return dict(self._prices)
 
-    def remove(self, ticker: str) -> None:
-        """Remove a ticker (price, session open and history) from the cache."""
+    def get_history(self, ticker: str) -> list[PricePoint]:
+        """Points from the last HISTORY_SECONDS, oldest first. [] if unknown."""
+        cutoff = self._clock() - self._history_seconds
         with self._lock:
-            self._prices.pop(ticker, None)
-            self._open_prices.pop(ticker, None)
-            self._history.pop(ticker, None)
+            history = self._history.get(ticker)
+            if not history:
+                return []
+            return [p for p in history if p.timestamp >= cutoff]
 
     @property
     def version(self) -> int:
-        """Current version counter. Useful for SSE change detection."""
-        return self._version
+        """Monotonic change counter for SSE change detection."""
+        with self._lock:
+            return self._version
 
     def __len__(self) -> int:
         with self._lock:

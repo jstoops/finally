@@ -128,11 +128,44 @@ class TestSimulatorDataSource:
         """Test creating source with custom event probability."""
         cache = PriceCache()
         # Very high event probability for testing
-        source = SimulatorDataSource(
-            price_cache=cache, update_interval=0.1, event_probability=1.0
-        )
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.1, event_probability=1.0)
         await source.start(["AAPL"])
 
         # Just verify it starts and stops cleanly
         await asyncio.sleep(0.2)
         await source.stop()
+
+    async def test_tickers_are_normalized(self):
+        """Lowercase / padded symbols map to the same uppercase ticker."""
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=10)
+        await source.start(["aapl", " AAPL "])
+        await source.add_ticker(" tsla")
+        assert source.get_tickers() == ["AAPL", "TSLA"]
+        assert set(cache.get_all()) == {"AAPL", "TSLA"}
+        await source.remove_ticker("tsla ")
+        assert source.get_tickers() == ["AAPL"]
+        assert "TSLA" not in cache
+        await source.stop()
+
+    async def test_re_adding_tracked_ticker_adds_no_history_point(self):
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=10)
+        await source.start(["AAPL"])
+        await source.add_ticker("AAPL")
+        assert len(cache.get_history("AAPL")) == 1
+        await source.stop()
+
+    async def test_unknown_ticker_priced_immediately_and_deterministically(self):
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=10)
+        await source.start([])
+        await source.add_ticker("PYPL")
+        first = cache.get_price("PYPL")
+        await source.stop()
+
+        cache2 = PriceCache()
+        source2 = SimulatorDataSource(price_cache=cache2, update_interval=10)
+        await source2.start(["PYPL"])
+        assert cache2.get_price("PYPL") == first
+        await source2.stop()
