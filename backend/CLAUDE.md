@@ -7,6 +7,29 @@ cd backend
 uv sync --extra dev   # Install all dependencies including test/lint tools
 ```
 
+## Running the App
+
+```bash
+uv run uvicorn app.main:app --port 8000          # from backend/; LLM_MOCK=true for mock chat
+```
+
+`app/main.py` builds the app with `create_app(db_path=None, static_dir=None, source_factory=create_market_data_source, snapshot_interval=30.0)`; arguments override the environment (tests pass a temp DB and a fake source). The lifespan runs `init_db`, starts the market source with watchlist ∪ held positions, records a snapshot, then snapshots every 30 s. `STATIC_DIR` is mounted at `/` after the API routes, and skipped if missing. Raise `HTTPException(status, detail=msg)` in routers; the global handler returns `{"error": msg}`.
+
+## App Modules
+
+- **`app/config.py`** — `load_env()` (loads `<repo>/.env`, never overriding the environment), `get_db_path()` (default `<repo>/db/finally.db`), `get_static_dir()` (default `backend/static`), `llm_mock_enabled()`, `openrouter_api_key()`.
+- **`app/state.py`** — `AppState(db_path, price_cache, market_source)` on `app.state.ctx`; `state.connect()` opens a new DB connection (caller closes it).
+- **`app/db/`** — stdlib `sqlite3` persistence (autocommit connections; group writes in `with db.transaction(conn):`).
+- **`app/portfolio/`** — the only place trades and watchlist changes happen (REST and chat both call it):
+  - `execute_trade(state, ticker, side, quantity)` — PLAN §7 rules in one transaction, then a snapshot; drops an unwatched ticker sold to zero from the market source. `apply_trade(conn, cache, ...)` is the synchronous core.
+  - `add_to_watchlist` / `remove_from_watchlist` / `reset_account` / `sync_tracked_tickers` — keep the market source tracking watchlist ∪ positions (PLAN §6).
+  - `build_portfolio`, `build_watchlist`, `watchlist_item`, `record_snapshot` — PLAN §8 response shapes.
+  - Rule violations raise `TradeError` (subclass of `PortfolioError`); the message is the user-facing 400 text.
+- **`app/api/`** — routers `portfolio.py` (portfolio, trade, history, reset), `watchlist.py`, `system.py` (health), `chat.py` (LLM).
+- **`app/llm/`** — chat orchestration (see its docstrings).
+
+Tests: `tests/conftest.py` provides `FakeSource` (fixed prices, no ticking), `db_path`, `price_cache`, `app_state` and `api_client` (a `TestClient` with the lifespan running).
+
 ## Market Data API
 
 The market data subsystem lives in `app/market/`. Use these imports:

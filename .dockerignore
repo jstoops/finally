@@ -1,0 +1,33 @@
+# Secrets: env vars are injected by docker compose, never baked into the image
+.env
+.env.*
+!.env.example
+
+# VCS / tooling
+.git
+.github
+.claude
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+
+# Local build artifacts and dependencies (rebuilt inside the image)
+backend/.venv
+backend/static
+backend/tests
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/coverage
+
+# Runtime data and non-app directories
+db
+test
+planning
+scripts
+*.md
+!backend/README.md
