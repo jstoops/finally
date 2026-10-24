@@ -219,3 +219,6 @@ test/test-results/
 test/playwright-report/
 test/blob-report/
 test/playwright/.cache/
+
+# Claude Code per-user settings
+.claude/settings.local.json
